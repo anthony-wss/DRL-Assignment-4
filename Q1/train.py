@@ -7,16 +7,18 @@ import gymnasium as gym
 import random
 import numpy as np
 from torch.distributions import Normal
+import time
 
 # Hyperparameters
-LEARNING_RATE = 0.003
-BATCH_SIZE = 256
+LEARNING_RATE = 0.001
+BATCH_SIZE = 64
 GAMMA = 0.99
 TAU = 0.05
 ALPHA = 0.2
 REPLAY_BUFFER_CAPACITY = 100000
 EPISODES = 1000
 RANDOM_START_STEPS = 1000
+HIDDEN_DIM = 256
 
 SEED = 197
 
@@ -45,7 +47,7 @@ class QNetwork(nn.Module):
 
     Q(s, a) = the value of the action a at state s.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=128):
+    def __init__(self, state_dim, action_dim, hidden_dim=HIDDEN_DIM):
         super(QNetwork, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_dim),
@@ -64,7 +66,7 @@ class PolicyNetwork(nn.Module):
 
     pi(s) = the action distribution at state s.
     """
-    def __init__(self, state_dim, action_dim, action_range, hidden_dim=128):
+    def __init__(self, state_dim, action_dim, action_range, hidden_dim=HIDDEN_DIM):
         super(PolicyNetwork, self).__init__()
         self.encoder = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -75,8 +77,9 @@ class PolicyNetwork(nn.Module):
         self.mean_layer = nn.Linear(hidden_dim, action_dim)
         self.log_std_layer = nn.Linear(hidden_dim, action_dim)
 
-        self.action_scale = torch.tensor((action_range[1] - action_range[0]) / 2.0, dtype=torch.float32)
-        self.action_bias = torch.tensor((action_range[1] + action_range[0]) / 2.0, dtype=torch.float32)
+        self.register_buffer("action_scale", torch.tensor((action_range[1] - action_range[0]) / 2.0, dtype=torch.float32))
+        self.register_buffer("action_bias", torch.tensor((action_range[1] + action_range[0]) / 2.0, dtype=torch.float32))
+
     
     def forward(self, state):
         """ Given a state, return the mean and std of the action distribution. """
@@ -114,15 +117,6 @@ class PolicyNetwork(nn.Module):
             return mean, log_prob
         else:
             return action, log_prob
-    
-    def to(self, device):
-        self.device = device
-        self.encoder.to(device)
-        self.mean_layer.to(device)
-        self.log_std_layer.to(device)
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return self
 
 class SACAgent:
     """ Agent that uses SAC algorithm for continuous action spaces """
@@ -196,7 +190,7 @@ class SACAgent:
 
 def make_env():
     # Create Pendulum-v1 environment
-    env = gym.make("Pendulum-v1", render_mode='rgb_array')
+    env = gym.make("Pendulum-v1", render_mode=None)
     env.reset(seed=SEED)
     env.action_space.seed(SEED)
     return env
@@ -216,11 +210,13 @@ def train():
         state, _ = env.reset()
         done = False
 
+        time_elapsed = time.time()
+
         while not done:
             if total_steps < RANDOM_START_STEPS:
                 action = env.action_space.sample()
             else:
-                action = agent.select_action(torch.FloatTensor(state).to(agent.device))
+                action = agent.select_action(torch.from_numpy(state).float().to(agent.device))
             
             if agent.replay_buffer.size() >= BATCH_SIZE:
                 agent.learn_step()
@@ -234,6 +230,7 @@ def train():
             total_steps += 1
         
         print(f"Episode {episode}, total steps: {total_steps}, episode reward: {episode_reward}")
+        print(f"Avg time elapsed per step(ms): {(time.time() - time_elapsed) / episode_steps * 1000}")
 
 if __name__ == "__main__":
     torch.manual_seed(SEED)
