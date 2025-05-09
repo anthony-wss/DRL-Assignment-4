@@ -12,17 +12,17 @@ import os
 import dmc
 
 # Hyperparameters
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0003
 BATCH_SIZE = 64
 GAMMA = 0.99
-TAU = 0.05
+TAU = 0.005
 ALPHA = 0.2
-REPLAY_BUFFER_CAPACITY = 100000
-EPISODES = 2000
-RANDOM_START_STEPS = 30000
+REPLAY_BUFFER_CAPACITY = int(1e6)
+EPISODES = 10000
+RANDOM_START_STEPS = 50000
 HIDDEN_DIM = 256
-SAVE_STEPS = int(100000)
-REWARD_TO_START_SAVE = 700  # Save the ckpt once the avg reward pass this value
+SAVE_STEPS = int(1e5)
+REWARD_TO_START_SAVE = 300  # Save the ckpt once the avg reward pass this value
 
 SEED = 197
 
@@ -221,7 +221,7 @@ class SACAgent:
 
 def make_env():
     # Create Pendulum-v1 environment
-    env_name = "cartpole-balance"
+    env_name = "humanoid-walk"
     env = dmc.make_dmc_env(env_name, SEED, flatten=True, use_pixels=False)
     return env
 
