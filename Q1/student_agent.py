@@ -14,7 +14,7 @@ class Agent(SACAgent):
         action_range = [-2, 2]
         super(Agent, self).__init__(state_dim, action_dim, action_range)
         
-        self.load_ckpt("./outputs/ckpt_999.pt")
+        self.load_ckpt("./outputs/ckpt_best.pt")
 
     def act(self, observation):
         state = torch.tensor(observation, device=self.device)
