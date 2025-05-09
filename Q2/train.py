@@ -9,6 +9,7 @@ import numpy as np
 from torch.distributions import Normal
 import time
 import os
+import dmc
 
 # Hyperparameters
 LEARNING_RATE = 0.001
@@ -17,11 +18,11 @@ GAMMA = 0.99
 TAU = 0.05
 ALPHA = 0.2
 REPLAY_BUFFER_CAPACITY = 100000
-EPISODES = 1000
-RANDOM_START_STEPS = 10000
+EPISODES = 2000
+RANDOM_START_STEPS = 30000
 HIDDEN_DIM = 256
-SAVE_STEPS = int(50000)
-REWARD_TO_START_SAVE = -500  # Save the ckpt once the avg reward pass this value
+SAVE_STEPS = int(100000)
+REWARD_TO_START_SAVE = 700  # Save the ckpt once the avg reward pass this value
 
 SEED = 197
 
@@ -220,9 +221,8 @@ class SACAgent:
 
 def make_env():
     # Create Pendulum-v1 environment
-    env = gym.make("Pendulum-v1", render_mode=None)
-    env.reset(seed=SEED)
-    env.action_space.seed(SEED)
+    env_name = "cartpole-balance"
+    env = dmc.make_dmc_env(env_name, SEED, flatten=True, use_pixels=False)
     return env
 
 def train():
