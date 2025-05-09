@@ -8,6 +8,7 @@ import random
 import numpy as np
 from torch.distributions import Normal
 import time
+import os
 
 # Hyperparameters
 LEARNING_RATE = 0.001
@@ -17,8 +18,9 @@ TAU = 0.05
 ALPHA = 0.2
 REPLAY_BUFFER_CAPACITY = 100000
 EPISODES = 1000
-RANDOM_START_STEPS = 1000
+RANDOM_START_STEPS = 10000
 HIDDEN_DIM = 256
+SAVE_STEPS = int(50000)
 
 SEED = 197
 
@@ -102,6 +104,11 @@ class PolicyNetwork(nn.Module):
             log_prob: the log probability for entropy maximization
         """
         mean, std = self.forward(state)
+
+        if deterministic:
+            mean = torch.tanh(mean) * self.action_scale + self.action_bias
+            return mean, None
+
         dist = Normal(mean, std)
         x_t = dist.rsample()
         y_t = torch.tanh(x_t)
@@ -112,11 +119,7 @@ class PolicyNetwork(nn.Module):
         log_prob -= torch.log(1 - y_t.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
 
-        if deterministic:
-            mean = torch.tanh(mean) * self.action_scale + self.action_bias
-            return mean, log_prob
-        else:
-            return action, log_prob
+        return action, log_prob
 
 class SACAgent:
     """ Agent that uses SAC algorithm for continuous action spaces """
@@ -155,11 +158,11 @@ class SACAgent:
         """ Perform one step of learning """
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(BATCH_SIZE)
         
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.FloatTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).to(self.device)
+        states = torch.tensor(states, device=self.device, dtype=torch.float32)
+        actions = torch.tensor(actions, device=self.device, dtype=torch.float32)
+        rewards = torch.tensor(rewards, device=self.device, dtype=torch.float32)
+        next_states = torch.tensor(next_states, device=self.device, dtype=torch.float32)
+        dones = torch.tensor(dones, device=self.device, dtype=torch.float32)
         
         with torch.no_grad():
             next_action, next_log_prob = self.policy_network.sample(next_states)
@@ -187,6 +190,32 @@ class SACAgent:
         # Update target network
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)
+    
+    def save_ckpt(self, save_dir, total_steps):
+        """ Save all the components for evaluation, not resume training.
+        
+        Save critic_target network and policy network only.
+        """
+        save_path = os.path.join(save_dir, f"ckpt_{total_steps}.pt")
+        os.makedirs(save_dir, exist_ok=True)
+        models = {
+            "critic_target": self.critic_target.state_dict(),
+            "policy_network": self.policy_network.state_dict()
+        }
+        with open(save_path, "wb") as fp:
+            torch.save(models, fp)
+        print(f"Save ckpt at step: {total_steps}")
+
+        # Move to the original device
+        self.critic_target.to(self.device)
+        self.policy_network.to(self.device)
+    
+    def load_ckpt(self, ckpt_path):
+        """ Load from ckpt for evaluation only. """
+        with open(ckpt_path, "rb") as fp:
+            checkpoint = torch.load(fp, weights_only=False)
+            self.critic_target.load_state_dict(checkpoint["critic_target"])
+            self.policy_network.load_state_dict(checkpoint["policy_network"])
 
 def make_env():
     # Create Pendulum-v1 environment
@@ -216,7 +245,7 @@ def train():
             if total_steps < RANDOM_START_STEPS:
                 action = env.action_space.sample()
             else:
-                action = agent.select_action(torch.from_numpy(state).float().to(agent.device))
+                action = agent.select_action(torch.tensor(state, device=agent.device, dtype=torch.float32))
             
             if agent.replay_buffer.size() >= BATCH_SIZE:
                 agent.learn_step()
@@ -228,6 +257,11 @@ def train():
             episode_reward += reward
             episode_steps += 1
             total_steps += 1
+
+            if total_steps % SAVE_STEPS == 0:
+                agent.save_ckpt("./outputs", total_steps)
+
+
         
         print(f"Episode {episode}, total steps: {total_steps}, episode reward: {episode_reward}")
         print(f"Avg time elapsed per step(ms): {(time.time() - time_elapsed) / episode_steps * 1000}")
