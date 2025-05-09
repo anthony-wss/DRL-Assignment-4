@@ -16,13 +16,14 @@ LEARNING_RATE = 0.0003
 BATCH_SIZE = 64
 GAMMA = 0.99
 TAU = 0.005
-ALPHA = 0.2
+ALPHA = 0.05
 REPLAY_BUFFER_CAPACITY = int(1e6)
 EPISODES = 10000
 RANDOM_START_STEPS = 50000
 HIDDEN_DIM = 256
 SAVE_STEPS = int(1e5)
 REWARD_TO_START_SAVE = 300  # Save the ckpt once the avg reward pass this value
+REWARD_SCALE = 5
 
 SEED = 197
 
@@ -53,7 +54,14 @@ class QNetwork(nn.Module):
     """
     def __init__(self, state_dim, action_dim, hidden_dim=HIDDEN_DIM):
         super(QNetwork, self).__init__()
-        self.layers = nn.Sequential(
+        self.q1 = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+        self.q2 = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
@@ -63,7 +71,7 @@ class QNetwork(nn.Module):
     
     def forward(self, state, action):
         x = torch.cat([state, action], dim=-1)
-        return self.layers(x)
+        return self.q1(x), self.q2(x)
 
 class PolicyNetwork(nn.Module):
     """ Policy network for SAC algorithm.
@@ -74,6 +82,8 @@ class PolicyNetwork(nn.Module):
         super(PolicyNetwork, self).__init__()
         self.encoder = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU()
@@ -90,6 +100,7 @@ class PolicyNetwork(nn.Module):
         x = self.encoder(state)
         mean = self.mean_layer(x)
         log_std = self.log_std_layer(x)
+        log_std = torch.clamp(log_std, min=-20, max=2)
         std = torch.exp(log_std)
         return mean, std
     
@@ -168,13 +179,13 @@ class SACAgent:
         
         with torch.no_grad():
             next_action, next_log_prob = self.policy_network.sample(next_states)
-            next_q_value = self.critic_target(next_states, next_action)
-            min_next_q_target = (next_q_value - ALPHA * next_log_prob).squeeze()
-            next_q_target = rewards + GAMMA * (1 - dones) * min_next_q_target
+            next_q1, next_q2 = self.critic_target(next_states, next_action)
+            min_next_q_target = (min(next_q1, next_q2) - ALPHA * next_log_prob).squeeze()
+            next_q_target = REWARD_SCALE * rewards + GAMMA * (1 - dones) * min_next_q_target
         
         # Critic network
-        q_value = self.critic(states, actions).squeeze()
-        critic_loss = F.mse_loss(q_value, next_q_target)
+        q1, q2 = self.critic(states, actions)
+        critic_loss = F.mse_loss(q1, next_q_target) + F.mse_loss(q2, next_q_target)
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -182,8 +193,8 @@ class SACAgent:
 
         # Policy network
         action, log_prob = self.policy_network.sample(states)
-        q_value = self.critic(states, action)
-        policy_loss = -torch.mean(q_value - ALPHA * log_prob)
+        q1, q2 = self.critic(states, action)
+        policy_loss = -torch.mean(min(q1, q2) - ALPHA * log_prob)
         
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
