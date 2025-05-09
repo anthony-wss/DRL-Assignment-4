@@ -180,11 +180,12 @@ class SACAgent:
         with torch.no_grad():
             next_action, next_log_prob = self.policy_network.sample(next_states)
             next_q1, next_q2 = self.critic_target(next_states, next_action)
-            min_next_q_target = (min(next_q1, next_q2) - ALPHA * next_log_prob).squeeze()
+            min_next_q_target = (torch.min(next_q1, next_q2) - ALPHA * next_log_prob).squeeze()
             next_q_target = REWARD_SCALE * rewards + GAMMA * (1 - dones) * min_next_q_target
         
         # Critic network
         q1, q2 = self.critic(states, actions)
+        q1, q2 = q1.squeeze(), q2.squeeze()
         critic_loss = F.mse_loss(q1, next_q_target) + F.mse_loss(q2, next_q_target)
 
         self.critic_optimizer.zero_grad()
@@ -194,7 +195,7 @@ class SACAgent:
         # Policy network
         action, log_prob = self.policy_network.sample(states)
         q1, q2 = self.critic(states, action)
-        policy_loss = -torch.mean(min(q1, q2) - ALPHA * log_prob)
+        policy_loss = -torch.mean(torch.min(q1, q2) - ALPHA * log_prob)
         
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
