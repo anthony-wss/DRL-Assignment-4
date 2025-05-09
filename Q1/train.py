@@ -21,6 +21,7 @@ EPISODES = 1000
 RANDOM_START_STEPS = 10000
 HIDDEN_DIM = 256
 SAVE_STEPS = int(50000)
+REWARD_TO_START_SAVE = -500  # Save the ckpt once the avg reward pass this value
 
 SEED = 197
 
@@ -232,6 +233,8 @@ def train():
     agent = SACAgent(state_dim, action_dim, action_range)
 
     total_steps = 0
+    train_rewards = []
+    highest_avg_reward = float("-inf")
 
     for episode in range(EPISODES):
         episode_reward = 0
@@ -261,9 +264,14 @@ def train():
             if total_steps % SAVE_STEPS == 0:
                 agent.save_ckpt("./outputs", total_steps)
 
-
+        train_rewards.append(episode_reward)
+        last_100_eps_reward = np.mean(train_rewards[-100:])
+        if last_100_eps_reward > highest_avg_reward:
+            highest_avg_reward = last_100_eps_reward 
+            if last_100_eps_reward > REWARD_TO_START_SAVE:
+                agent.save_ckpt("./outputs", "best")
         
-        print(f"Episode {episode}, total steps: {total_steps}, episode reward: {episode_reward}")
+        print(f"Episode {episode}, total steps: {total_steps}, episode reward: {round(episode_reward, 2)}, last 100: {round(last_100_eps_reward, 2)}, best 100: {round(highest_avg_reward, 2)}")
         print(f"Avg time elapsed per step(ms): {(time.time() - time_elapsed) / episode_steps * 1000}")
 
 if __name__ == "__main__":
