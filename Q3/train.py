@@ -47,6 +47,12 @@ class ReplayBuffer:
     def size(self):
         return len(self.buffer)
 
+def init_weights(model):
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight, gain=0.01)
+            nn.init.zeros_(m.bias, 0)
+
 class QNetwork(nn.Module):
     """ Q network for SAC algorithm.
 
@@ -59,6 +65,8 @@ class QNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
         self.q2 = nn.Sequential(
@@ -66,8 +74,11 @@ class QNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
+        init_weights(self)
     
     def forward(self, state, action):
         x = torch.cat([state, action], dim=-1)
@@ -154,6 +165,12 @@ class SACAgent:
         self.policy_network = PolicyNetwork(state_dim, action_dim, action_range).to(self.device)
         self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=LEARNING_RATE)
 
+        # Tune alpha
+        self.target_entropy = -action_dim
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+        self.alpha = self.log_alpha.exp()
+        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=LEARNING_RATE)
+
     def select_action(self, state, deterministic=False):
         """ Select action from policy network
 
@@ -180,7 +197,7 @@ class SACAgent:
         with torch.no_grad():
             next_action, next_log_prob = self.policy_network.sample(next_states)
             next_q1, next_q2 = self.critic_target(next_states, next_action)
-            min_next_q_target = (torch.min(next_q1, next_q2) - ALPHA * next_log_prob).squeeze()
+            min_next_q_target = (torch.min(next_q1, next_q2) - self.alpha * next_log_prob).squeeze()
             next_q_target = REWARD_SCALE * rewards + GAMMA * (1 - dones) * min_next_q_target
         
         # Critic network
@@ -195,11 +212,18 @@ class SACAgent:
         # Policy network
         action, log_prob = self.policy_network.sample(states)
         q1, q2 = self.critic(states, action)
-        policy_loss = -torch.mean(torch.min(q1, q2) - ALPHA * log_prob)
+        policy_loss = -torch.mean(torch.min(q1, q2) - self.alpha * log_prob)
         
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         self.policy_optimizer.step()
+
+        # Tune alpha
+        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        self.alpha_optimizer.zero_grad()
+        alpha_loss.backward()
+        self.alpha_optimizer.step()
+        self.alpha = self.log_alpha.exp()
 
         # Update target network
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
