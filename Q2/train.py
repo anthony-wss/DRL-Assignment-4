@@ -16,9 +16,9 @@ LEARNING_RATE = 0.001
 BATCH_SIZE = 256
 GAMMA = 0.99
 TAU = 0.005
-ALPHA = 0.2
+# ALPHA = 0.2  # auto-tuned
 REPLAY_BUFFER_CAPACITY = 100000
-EPISODES = 1000
+EPISODES = 100
 RANDOM_START_STEPS = 1000
 HIDDEN_DIM = 256
 SAVE_STEPS = int(100000)
@@ -151,6 +151,12 @@ class SACAgent:
         self.policy_network = PolicyNetwork(state_dim, action_dim, action_range).to(self.device)
         self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=LEARNING_RATE)
 
+        # Tune alpha
+        self.target_entropy = -action_dim
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+        self.alpha = self.log_alpha.exp()
+        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=LEARNING_RATE)
+
     def select_action(self, state, deterministic=False):
         """ Select action from policy network
 
@@ -177,7 +183,7 @@ class SACAgent:
         with torch.no_grad():
             next_action, next_log_prob = self.policy_network.sample(next_states)
             next_q1, next_q2 = self.critic_target(next_states, next_action)
-            min_next_q_target = (torch.min(next_q1, next_q2) - ALPHA * next_log_prob).squeeze()
+            min_next_q_target = (torch.min(next_q1, next_q2) - self.alpha * next_log_prob).squeeze()
             next_q_target = rewards + GAMMA * (1 - dones) * min_next_q_target
         
         # Critic network
@@ -192,11 +198,18 @@ class SACAgent:
         # Policy network
         action, log_prob = self.policy_network.sample(states)
         q1, q2 = self.critic(states, action)
-        policy_loss = -torch.mean(torch.min(q1, q2) - ALPHA * log_prob)
+        policy_loss = -torch.mean(torch.min(q1, q2) - self.alpha * log_prob)
         
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         self.policy_optimizer.step()
+
+        # Tune alpha
+        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        self.alpha_optimizer.zero_grad()
+        alpha_loss.backward()
+        self.alpha_optimizer.step()
+        self.alpha = self.log_alpha.exp()
 
         # Update target network
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
