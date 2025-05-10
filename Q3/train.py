@@ -16,7 +16,7 @@ LEARNING_RATE = 0.0003
 BATCH_SIZE = 64
 GAMMA = 0.99
 TAU = 0.005
-ALPHA = 0.05
+# ALPHA = 0.05  # auto-tuned
 REPLAY_BUFFER_CAPACITY = int(1e6)
 EPISODES = 10000
 RANDOM_START_STEPS = 50000
@@ -51,7 +51,7 @@ def init_weights(model):
     for m in model.modules():
         if isinstance(m, nn.Linear):
             nn.init.xavier_uniform_(m.weight, gain=0.01)
-            nn.init.zeros_(m.bias, 0)
+            nn.init.zeros_(m.bias)
 
 class QNetwork(nn.Module):
     """ Q network for SAC algorithm.
