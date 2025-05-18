@@ -251,7 +251,7 @@ class SACAgent:
     def load_ckpt(self, ckpt_path):
         """ Load from ckpt for evaluation only. """
         with open(ckpt_path, "rb") as fp:
-            checkpoint = torch.load(fp, weights_only=False)
+            checkpoint = torch.load(fp, weights_only=False, map_location=torch.device('cpu'))
             self.critic_target.load_state_dict(checkpoint["critic_target"])
             self.policy_network.load_state_dict(checkpoint["policy_network"])
 
