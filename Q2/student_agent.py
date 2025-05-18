@@ -1,11 +1,20 @@
 import gymnasium
 import numpy as np
+from train import SACAgent
+import torch
 
 # Do not modify the input of the 'act' function and the '__init__' function. 
-class Agent(object):
+class Agent(SACAgent):
     """Agent that acts randomly."""
     def __init__(self):
-        self.action_space = gymnasium.spaces.Box(-1.0, 1.0, (1,), np.float64)
+        state_dim = 5
+        action_dim = 1
+        action_range = [-1, 1]
+        super(Agent, self).__init__(state_dim, action_dim, action_range)
+        
+        self.load_ckpt("./ckpt_best.pt")
 
     def act(self, observation):
-        return self.action_space.sample()
+        state = torch.tensor(observation, dtype=torch.float, device=self.device)
+        return self.select_action(state, deterministic=True)
+
